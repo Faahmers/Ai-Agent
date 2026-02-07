@@ -26,28 +26,38 @@ def generate_test_for_file(filepath):
     folder = os.path.dirname(filepath)
     test_filepath = os.path.join(folder, f"test_{filename}")
 
-    # Skip if test exists or if it's an agent file
     if os.path.exists(test_filepath) or filename.startswith("test_") or "agent" in filename:
         return
 
     print(f"🕵️  [QA Agent] Generating tests for: {filename}...")
     code_content = read_file(filepath)
 
+    # --- UPGRADED PROMPT ---
     prompt = ChatPromptTemplate.from_template(
         """You are a Senior QA Automation Engineer. Write a Pytest suite for '{filename}'.
-        RULES:
-        1. Import using: `from {module_name} import *`
-        2. Write `def test_...():` functions covering Happy Paths AND Edge Cases.
-        3. Assume standard logic (e.g. multiply means *, lists don't persist).
+        
+        CRITICAL RULES FOR UI/SCRIPTS:
+        1. Does the code use 'streamlit', 'tkinter', or run code at global scope?
+        2. IF YES: You MUST mock these modules in `sys.modules` BEFORE importing the file.
+           Example:
+           ```python
+           import sys
+           from unittest.mock import MagicMock
+           sys.modules["streamlit"] = MagicMock() # Mock BEFORE import
+           from {module_name} import *
+           ```
+        3. Logic Testing: Test functions (happy/edge cases) using standard mocks for requests/db.
         4. Return ONLY the python code.
+        
         CODE: {code}"""
     )
     
     chain = prompt | qa_model | StrOutputParser()
     try:
         test_code = chain.invoke({"filename": filename, "module_name": module_name, "code": code_content})
-        write_file(test_filepath, test_code.replace("```python", "").replace("```", "").strip())
-        print(f"✅ Created: {test_filepath}")
+        clean_code = test_code.replace("```python", "").replace("```", "").strip()
+        write_file(test_filepath, clean_code)
+        print(f"✅ Created Robust Test: {test_filepath}")
     except Exception as e:
         print(f"❌ Failed: {e}")
 
